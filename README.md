@@ -38,6 +38,8 @@ The service runs as a single-process uvicorn server with an async queue. Request
 
 **Device semantics:** MLX Whisper ASR always runs on the Metal GPU automatically. The `DEVICE` environment variable (default `mps`) only controls where the VAD, wav2vec2 alignment, and pyannote diarization (torch-based stages) run. `COMPUTE_TYPE` and `BATCH_SIZE` are accepted for API compatibility but have no effect on the MLX backend.
 
+For long podcasts on Macs with limited GPU memory, set `DEVICE=cpu` in the service environment. This moves speech detection and timestamp alignment to the CPU while keeping MLX Whisper transcription on the Metal GPU. Alignment and diarization may take longer. The service clears unused MLX and PyTorch GPU caches before and after transcription and alignment, including after a failed stage.
+
 ## Prerequisites
 
 ### Hardware Requirements

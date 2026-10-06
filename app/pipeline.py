@@ -132,9 +132,8 @@ _eviction_thread_started = False
 def clear_gpu_memory():
     """Clear GPU memory cache to prevent VRAM buildup.
 
-    Uses gc.collect() plus a guarded MLX cache clear.
-    MLX inference runs on the Metal GPU automatically; this releases
-    MLX-allocated buffers that are no longer referenced.
+    Release unused buffers from both MLX Whisper and PyTorch's supporting
+    stages. Neither allocator can clear the other allocator's cache.
     """
     gc.collect()
     try:
@@ -142,6 +141,13 @@ def clear_gpu_memory():
 
         if hasattr(mlx.core, "clear_cache"):
             mlx.core.clear_cache()
+    except Exception:
+        pass
+    try:
+        import torch
+
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
     except Exception:
         pass
     logger.debug("GPU memory cache cleared")
@@ -287,6 +293,7 @@ def transcribe(
               A warning is logged; no error is raised.
     initial_prompt: set per-request on the shared cached model (reset in finally).
     """
+    clear_gpu_memory()
     whisper_model = load_whisper_model(model_name)
 
     # Hotwords is a no-op: the MLX backend has no hotwords mechanism.
@@ -312,11 +319,11 @@ def transcribe(
         # Always reset initial_prompt to avoid leaking to next request
         if initial_prompt is not None:
             whisper_model.initial_prompt = None
+        clear_gpu_memory()
 
     detected_language = result.get("language", language or "en")
     logger.info(f"Transcription complete. Detected language: {detected_language}")
 
-    clear_gpu_memory()
     return result
 
 
@@ -327,6 +334,7 @@ def align(audio: np.ndarray, result: dict) -> dict:
     """Run Wav2Vec2 alignment to get word-level timestamps."""
     detected_language = result.get("language", "en")
     logger.info("Aligning timestamps...")
+    clear_gpu_memory()
     try:
         model_a, metadata = load_align_model(detected_language)
         result = whispermlx.align(
@@ -338,9 +346,10 @@ def align(audio: np.ndarray, result: dict) -> dict:
             return_char_alignments=False,
         )
         logger.info("Timestamp alignment complete")
-        clear_gpu_memory()
     except Exception as e:
         logger.warning(f"Timestamp alignment failed: {e}, continuing without word-level timestamps")
+    finally:
+        clear_gpu_memory()
     return result
 
 
