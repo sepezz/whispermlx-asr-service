@@ -23,6 +23,8 @@ import numpy as np
 import whispermlx
 from whispermlx.diarize import DiarizationPipeline
 
+from app.vad_progress import speech_detection_progress
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -287,6 +289,7 @@ def transcribe(
     initial_prompt: str | None = None,
     hotwords: str | None = None,
     progress_callback=None,
+    vad_progress_callback=None,
 ) -> dict:
     """Run whispermlx transcription and return raw result dict.
 
@@ -314,7 +317,8 @@ def transcribe(
         kwargs = {"language": language, "task": task}
         if progress_callback is not None:
             kwargs["progress_callback"] = progress_callback
-        result = whisper_model.transcribe(audio, **kwargs)
+        with speech_detection_progress(whisper_model, vad_progress_callback):
+            result = whisper_model.transcribe(audio, **kwargs)
     finally:
         # Always reset initial_prompt to avoid leaking to next request
         if initial_prompt is not None:

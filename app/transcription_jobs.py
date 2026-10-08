@@ -99,6 +99,7 @@ def _process(job_id: str) -> dict:
         language=job["language"],
         initial_prompt=job["prompt"],
         progress_callback=lambda percent: report("transcribing", percent),
+        vad_progress_callback=lambda percent: report("detecting_speech", percent),
     )
     if not result.get("segments"):
         raise RuntimeError("Transcription returned no speech segments")

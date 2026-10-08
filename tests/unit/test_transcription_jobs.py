@@ -93,6 +93,7 @@ def test_stage_callbacks_persist_percentages(store, monkeypatch):
         return original(*args, **changes)
 
     def transcribe(audio, **kwargs):
+        kwargs["vad_progress_callback"](100)
         kwargs["progress_callback"](100)
         return {"segments": [{"start": 0, "end": 1, "text": "hello"}], "language": "en"}
 
