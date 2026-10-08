@@ -286,6 +286,7 @@ def transcribe(
     task: str = "transcribe",
     initial_prompt: str | None = None,
     hotwords: str | None = None,
+    progress_callback=None,
 ) -> dict:
     """Run whispermlx transcription and return raw result dict.
 
@@ -310,11 +311,10 @@ def transcribe(
 
     logger.info("Starting transcription...")
     try:
-        result = whisper_model.transcribe(
-            audio,
-            language=language,
-            task=task,
-        )
+        kwargs = {"language": language, "task": task}
+        if progress_callback is not None:
+            kwargs["progress_callback"] = progress_callback
+        result = whisper_model.transcribe(audio, **kwargs)
     finally:
         # Always reset initial_prompt to avoid leaking to next request
         if initial_prompt is not None:
@@ -330,23 +330,28 @@ def transcribe(
 # ---------------------------------------------------------------------------
 # Stage 2 -- Alignment
 # ---------------------------------------------------------------------------
-def align(audio: np.ndarray, result: dict) -> dict:
+def align(audio: np.ndarray, result: dict, progress_callback=None, *, strict: bool = False) -> dict:
     """Run Wav2Vec2 alignment to get word-level timestamps."""
     detected_language = result.get("language", "en")
     logger.info("Aligning timestamps...")
     clear_gpu_memory()
     try:
         model_a, metadata = load_align_model(detected_language)
+        kwargs = {"return_char_alignments": False}
+        if progress_callback is not None:
+            kwargs["progress_callback"] = progress_callback
         result = whispermlx.align(
             result["segments"],
             model_a,
             metadata,
             audio,
             DEVICE,
-            return_char_alignments=False,
+            **kwargs,
         )
         logger.info("Timestamp alignment complete")
     except Exception as e:
+        if strict:
+            raise
         logger.warning(f"Timestamp alignment failed: {e}, continuing without word-level timestamps")
     finally:
         clear_gpu_memory()

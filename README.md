@@ -40,6 +40,10 @@ The service runs as a single-process uvicorn server with an async queue. Request
 
 For long podcasts on Macs with limited GPU memory, set `DEVICE=cpu` in the service environment. This moves speech detection and timestamp alignment to the CPU while keeping MLX Whisper transcription on the Metal GPU. Alignment and diarization may take longer. The service clears unused MLX and PyTorch GPU caches before and after transcription and alignment, including after a failed stage.
 
+**Saved transcription jobs:** `POST /v1/audio/jobs` accepts audio plus a caller-generated UUID `job_id`, `model`, and `word_timestamps`. It immediately returns HTTP 202. Poll `GET /v1/audio/jobs/{job_id}` for status, stage, and stage-local progress (0–100), then fetch `/v1/audio/jobs/{job_id}/result` for the verbose transcript. Reusing the same job ID and request returns the existing job without processing a second copy. Conflicting requests receive HTTP 409. The synchronous OpenAI-compatible endpoints remain available.
+
+Job records and uploaded audio are saved under `TRANSCRIPTION_JOBS_DIR` (default `jobs/` in the working directory). Interrupted queued/running jobs resume from their saved audio on startup. Successful and failed jobs release the uploaded audio. Results, error records and failure tracebacks remain on disk. Alignment errors fail saved jobs explicitly rather than silently omitting requested word timestamps. Speech detection reports its stage but no percentage. Transcription and alignment each report their own percentage, not an estimate of time remaining.
+
 ## Prerequisites
 
 ### Hardware Requirements

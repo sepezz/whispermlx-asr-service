@@ -81,6 +81,9 @@ async def lifespan(app: FastAPI):
     # /metrics shows whisperx_loaded_models >= 1 before any request
     # (VAL-CROSS-016).
     prom_metrics.LOADED_MODELS.set(len(loaded_models))
+    from app.transcription_jobs import recover_jobs
+
+    await recover_jobs()
     yield
 
 
@@ -394,6 +397,9 @@ from app.openai_compat import router as openai_router
 
 app.include_router(openai_router)
 app.include_router(models_router)
+from app.transcription_jobs import router as jobs_router
+
+app.include_router(jobs_router)
 
 
 def main():
