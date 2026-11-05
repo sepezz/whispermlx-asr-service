@@ -111,7 +111,14 @@ def format_verbose_json_response(
                 )
 
     return TranscriptionVerboseJsonResponse(
-        task=task, language=language, duration=duration, text=full_text, segments=segments, words=words
+        task=task,
+        language=language,
+        duration=duration,
+        text=full_text,
+        segments=segments,
+        words=words,
+        warnings=result.get("warnings") or None,
+        untranscribed_regions=result.get("untranscribed_regions") or None,
     )
 
 

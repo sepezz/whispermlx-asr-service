@@ -114,6 +114,7 @@ def client_no_preload():
     with (
         patch("app.main.whispermlx", wmlx),
         patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
         patch("app.openai_compat.whispermlx", wmlx),
         patch.dict(
             os.environ,
@@ -147,6 +148,7 @@ def client_with_eviction():
     with (
         patch("app.main.whispermlx", wmlx),
         patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
         patch("app.openai_compat.whispermlx", wmlx),
         patch.dict(
             os.environ,
@@ -250,6 +252,7 @@ class TestIdleModelEviction:
         wmlx = _make_whispermlx_mock()
         with (
             patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
             patch.dict(os.environ, {"MODEL_KEEP_ALIVE_SECONDS": "1"}, clear=False),
         ):
             import app.pipeline as pipe_mod
@@ -279,6 +282,7 @@ class TestIdleModelEviction:
         wmlx = _make_whispermlx_mock()
         with (
             patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
             patch.dict(os.environ, {"MODEL_KEEP_ALIVE_SECONDS": "1"}, clear=False),
         ):
             import app.pipeline as pipe_mod
@@ -311,6 +315,7 @@ class TestIdleModelEviction:
         wmlx = _make_whispermlx_mock()
         with (
             patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
             patch("app.main.whispermlx", wmlx),
             patch("app.openai_compat.whispermlx", wmlx),
             patch.dict(
@@ -357,6 +362,7 @@ class TestIdleModelEviction:
         wmlx = _make_whispermlx_mock()
         with (
             patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
             patch("app.main.whispermlx", wmlx),
             patch("app.openai_compat.whispermlx", wmlx),
             patch.dict(
@@ -418,6 +424,7 @@ class TestTransparentReloadAfterEviction:
         wmlx = _make_whispermlx_mock()
         with (
             patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
             patch("app.main.whispermlx", wmlx),
             patch("app.openai_compat.whispermlx", wmlx),
             patch.dict(
@@ -462,6 +469,7 @@ class TestTransparentReloadAfterEviction:
         wmlx = _make_whispermlx_mock()
         with (
             patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
             patch("app.main.whispermlx", wmlx),
             patch("app.openai_compat.whispermlx", wmlx),
             patch.dict(
@@ -508,6 +516,7 @@ class TestTransparentReloadAfterEviction:
         wmlx = _make_whispermlx_mock()
         with (
             patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
             patch("app.main.whispermlx", wmlx),
             patch("app.openai_compat.whispermlx", wmlx),
             patch.dict(
@@ -555,6 +564,7 @@ class TestTransparentReloadAfterEviction:
         wmlx = _make_whispermlx_mock()
         with (
             patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
             patch("app.main.whispermlx", wmlx),
             patch("app.openai_compat.whispermlx", wmlx),
             patch.dict(

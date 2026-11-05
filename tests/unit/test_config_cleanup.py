@@ -159,7 +159,7 @@ class TestComputeTypeBatchSizeInert:
         import app.pipeline as pipeline_mod
 
         mock_model = MagicMock()
-        with patch.object(pipeline_mod.whispermlx, "load_model", return_value=mock_model) as mock_load:
+        with patch.object(pipeline_mod, "FullAudioWhisper", return_value=mock_model) as mock_load:
             pipeline_mod._whisper_models.clear()
             pipeline_mod._whisper_models_last_used.clear()
 

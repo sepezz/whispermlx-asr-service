@@ -55,7 +55,7 @@ logger.info(f"Default model: {DEFAULT_MODEL}, Serve mode: {SERVE_MODE}")
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def _application_lifespan(app: FastAPI):
     """Application lifespan: preload models on startup (modern API).
 
     Uses the FastAPI lifespan context-manager instead of the deprecated
@@ -85,6 +85,16 @@ async def lifespan(app: FastAPI):
 
     await recover_jobs()
     yield
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from app.job_locks import exclusive_file
+    from app.transcription_jobs import STORE
+
+    with exclusive_file(STORE / '.service.lock'):
+        async with _application_lifespan(app):
+            yield
 
 
 # Initialize FastAPI app

@@ -13,6 +13,7 @@ import os
 import threading
 import time
 import warnings
+from copy import deepcopy
 from typing import Any
 
 # Suppress pyannote's torchcodec warning -- we decode audio via whispermlx.load_audio (ffmpeg),
@@ -23,7 +24,7 @@ import numpy as np
 import whispermlx
 from whispermlx.diarize import DiarizationPipeline
 
-from app.vad_progress import speech_detection_progress
+from app.full_audio import FullAudioWhisper
 
 logger = logging.getLogger(__name__)
 
@@ -164,10 +165,7 @@ def load_whisper_model(model_name: str):
         with _model_load_lock:
             if model_name not in _whisper_models:
                 logger.info(f"Loading whispermlx model: {model_name}")
-                model = whispermlx.load_model(
-                    model_name,
-                    device=DEVICE,
-                )
+                model = FullAudioWhisper(MLX_MODEL_MAP.get(model_name, model_name))
                 _whisper_models[model_name] = model
                 logger.info(f"Model {model_name} loaded successfully")
                 # Pre-register the eviction counter time series for this model
@@ -317,8 +315,8 @@ def transcribe(
         kwargs = {"language": language, "task": task}
         if progress_callback is not None:
             kwargs["progress_callback"] = progress_callback
-        with speech_detection_progress(whisper_model, vad_progress_callback):
-            result = whisper_model.transcribe(audio, **kwargs)
+        # No VAD stage: every window of the audio is decoded.
+        result = whisper_model.transcribe(audio, **kwargs)
     finally:
         # Always reset initial_prompt to avoid leaking to next request
         if initial_prompt is not None:
@@ -337,21 +335,53 @@ def transcribe(
 def align(audio: np.ndarray, result: dict, progress_callback=None, *, strict: bool = False) -> dict:
     """Run Wav2Vec2 alignment to get word-level timestamps."""
     detected_language = result.get("language", "en")
+    original = deepcopy(result)
+    from app.speech_coverage import is_unclear_audio
+
+    spoken = [s for s in result.get("segments", []) if s.get("text", "").strip() and not is_unclear_audio(s)]
+    if (
+        spoken
+        and all(s.get("words") for s in spoken)
+        and os.getenv("FORCE_ALIGNMENT", "").lower() not in ("1", "true", "yes")
+    ):
+        duration = len(audio) / 16000
+        words = [w for s in spoken for w in s["words"]]
+        if all(
+            math.isfinite(w["start"]) and math.isfinite(w["end"]) and 0 <= w["start"] <= w["end"] <= duration + 0.1
+            for w in words
+        ):
+            logger.info("Using native Whisper word timestamps. Forced alignment is not required.")
+            if progress_callback:
+                progress_callback(100)
+            return {**result, "word_segments": words}
     logger.info("Aligning timestamps...")
     clear_gpu_memory()
     try:
-        model_a, metadata = load_align_model(detected_language)
+        foreign = [
+            s
+            for s in result["segments"]
+            if is_unclear_audio(s) or (s.get("language") and s["language"] != detected_language and s.get("words"))
+        ]
+        main = [s for s in result["segments"] if s not in foreign]
         kwargs = {"return_char_alignments": False}
         if progress_callback is not None:
             kwargs["progress_callback"] = progress_callback
-        result = whispermlx.align(
-            result["segments"],
-            model_a,
-            metadata,
-            audio,
-            DEVICE,
-            **kwargs,
-        )
+        if main:
+            model_a, metadata = load_align_model(detected_language)
+            aligned = whispermlx.align(main, model_a, metadata, audio, DEVICE, **kwargs)
+        else:
+            aligned = {"segments": [], "word_segments": []}
+        # An English character aligner cannot place Japanese dialogue. Keep
+        # those already timed Whisper words rather than dropping their speech.
+        if foreign:
+            combined = sorted(aligned["segments"] + foreign, key=lambda s: (s["start"], s["end"]))
+            aligned = {
+                **aligned,
+                "segments": combined,
+                "word_segments": [w for s in combined for w in s.get("words", [])],
+            }
+            logger.info("Preserved Whisper timings for %d segments in other languages", len(foreign))
+        result = {**original, **aligned, "language": detected_language}
         logger.info("Timestamp alignment complete")
     except Exception as e:
         if strict:
@@ -359,6 +389,21 @@ def align(audio: np.ndarray, result: dict, progress_callback=None, *, strict: bo
         logger.warning(f"Timestamp alignment failed: {e}, continuing without word-level timestamps")
     finally:
         clear_gpu_memory()
+    if strict:
+        from app.speech_coverage import assert_recovered
+        from app.speech_coverage import missing_speech
+
+        remaining = missing_speech(audio, result.get("segments", []))
+        if remaining:
+            # Forced alignment can create holes in an otherwise verified
+            # transcript. Native Whisper word timings are already available.
+            # Use them only after independently checking their coverage again.
+            native = original.get("segments", [])
+            assert_recovered(missing_speech(audio, native), native)
+            if not native or any(s.get("text", "").strip() and not s.get("words") for s in native):
+                assert_recovered(remaining, result.get("segments", []))
+            result = {**original, "word_segments": [w for s in native for w in s.get("words", [])]}
+            logger.warning("Forced alignment lost speech coverage. Retained verified native Whisper word timings.")
     return result
 
 

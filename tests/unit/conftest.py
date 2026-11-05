@@ -1,10 +1,30 @@
 """Shared fixtures for unit tests (whispermlx mocked, fast, no model downloads)."""
 
+import os
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+
+# Set this during collection, before importing any application module. A
+# TestClient lifespan must never recover the running service's real jobs.
+_test_job_root = tempfile.TemporaryDirectory(prefix="whispermlx-unit-jobs-")
+os.environ["TRANSCRIPTION_JOBS_DIR"] = _test_job_root.name
+
+
+@pytest.fixture(autouse=True)
+def _isolate_job_store(tmp_path, monkeypatch):
+    from app import transcription_jobs as jobs
+
+    isolated = tmp_path / "jobs"
+    monkeypatch.setenv("TRANSCRIPTION_JOBS_DIR", str(isolated))
+    monkeypatch.setattr(jobs, "STORE", isolated)
+    monkeypatch.setattr(jobs, "_tasks", {})
+    yield
+    for task in list(jobs._tasks.values()):
+        task.cancel()
 
 
 def pytest_collection_modifyitems(config, items):
@@ -24,7 +44,7 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
-def _reset_pipeline_state():
+def _reset_pipeline_state(_isolate_job_store):
     """Reset pipeline module-level caches between tests to avoid cross-contamination.
 
     Clears the whisper model cache, last-used timestamps, and the eviction

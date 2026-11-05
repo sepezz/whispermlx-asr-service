@@ -69,6 +69,7 @@ def client():
     with (
         patch("app.main.whispermlx", wmlx),
         patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
         patch("app.openai_compat.whispermlx", wmlx),
         patch("app.main.run_in_queue") as mock_queue,
         patch("app.openai_compat.run_in_queue") as mock_oai_queue,
@@ -107,6 +108,7 @@ def client_with_preload():
     with (
         patch("app.main.whispermlx", wmlx),
         patch("app.pipeline.whispermlx", wmlx),
+        patch("app.pipeline.FullAudioWhisper", wmlx.load_model),
         patch("app.openai_compat.whispermlx", wmlx),
         patch.dict(os.environ, {"PRELOAD_MODEL": "base", "DEVICE": "cpu", "SERVE_MODE": "simple"}, clear=False),
     ):

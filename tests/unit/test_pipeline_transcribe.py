@@ -193,23 +193,23 @@ class TestResolveModelName:
 
 
 # ---------------------------------------------------------------------------
-# 5. load_whisper_model — whispermlx.load_model
+# 5. load_whisper_model — full-audio adapter
 # ---------------------------------------------------------------------------
 
 
 class TestLoadWhisperModel:
-    """Verify load_whisper_model calls whispermlx.load_model."""
+    """Verify load_whisper_model prepares and caches the full-audio adapter."""
 
-    def test_calls_whispermlx_load_model(self):
-        """Should call whispermlx.load_model(name, device=DEVICE)."""
+    def test_creates_full_audio_adapter(self):
+        """Prepare the full-audio decoder with the canonical model repository."""
         pipeline = _import_pipeline()
         mock_model = _make_mock_model()
         pipeline._whisper_models.clear()
         pipeline._whisper_models_last_used.clear()
 
-        with patch.object(pipeline.whispermlx, "load_model", return_value=mock_model) as mock_load:
+        with patch.object(pipeline, "FullAudioWhisper", return_value=mock_model) as mock_load:
             result = pipeline.load_whisper_model("base")
-            mock_load.assert_called_once_with("base", device=pipeline.DEVICE)
+            mock_load.assert_called_once_with(pipeline.MLX_MODEL_MAP["base"])
             assert result is mock_model
 
     def test_caches_model(self):
@@ -219,7 +219,7 @@ class TestLoadWhisperModel:
         pipeline._whisper_models.clear()
         pipeline._whisper_models_last_used.clear()
 
-        with patch.object(pipeline.whispermlx, "load_model", return_value=mock_model):
+        with patch.object(pipeline, "FullAudioWhisper", return_value=mock_model):
             pipeline.load_whisper_model("base")
             pipeline.load_whisper_model("base")
         # load_model should only be called once due to caching
@@ -426,6 +426,95 @@ class TestTranscribeCall:
 
 class TestAlign:
     """Verify align() uses whispermlx.align(...)."""
+
+    def test_alignment_holes_fall_back_to_independently_verified_native_words(self, monkeypatch):
+        monkeypatch.setenv("FORCE_ALIGNMENT", "true")
+        pipeline = _import_pipeline()
+        pipeline._align_models["en"] = (MagicMock(), {})
+        native = {
+            "start": 0.0,
+            "end": 8.0,
+            "text": "Complete speech.",
+            "words": [{"word": "Complete speech.", "start": 0.0, "end": 8.0}],
+        }
+        monkeypatch.setattr(pipeline.whispermlx, "align", lambda *args, **kwargs: {"segments": [], "word_segments": []})
+        monkeypatch.setattr("app.speech_coverage.missing_speech", lambda audio, segments: [] if segments else [(0, 8)])
+        result = pipeline.align(
+            np.ones(8 * 16000, dtype=np.float32), {"language": "en", "segments": [native]}, strict=True
+        )
+        assert result["segments"] == [native]
+        assert result["word_segments"] == native["words"]
+
+    def test_native_words_do_not_require_forced_alignment(self, monkeypatch):
+        pipeline = _import_pipeline()
+        native = {"start": 0, "end": 1, "text": "Hello.", "words": [{"word": "Hello.", "start": 0, "end": 1}]}
+
+        def unexpected(*args, **kwargs):
+            raise AssertionError("Native timestamps must not be needlessly realigned")
+
+        monkeypatch.setattr(pipeline.whispermlx, "align", unexpected)
+        result = pipeline.align(
+            np.zeros(16000, dtype=np.float32), {"segments": [native], "language": "en"}, strict=True
+        )
+        assert result["word_segments"] == native["words"]
+
+    def test_english_aligner_does_not_erase_japanese_clip(self, monkeypatch):
+        pipeline = _import_pipeline()
+        pipeline._align_models["en"] = (MagicMock(), {})
+        english = {
+            "start": 0.0,
+            "end": 1.0,
+            "text": "Here is the clip.",
+            "language": "en",
+            "words": [{"word": "clip", "start": 0.0, "end": 1.0}],
+        }
+        japanese = {
+            "start": 2.0,
+            "end": 5.0,
+            "text": "ゴジラ",
+            "language": "ja",
+            "words": [{"word": "ゴジラ", "start": 2.0, "end": 5.0}],
+        }
+
+        def align_main(segments, *args, **kwargs):
+            assert segments == [english]
+            return {"segments": [english], "word_segments": english["words"]}
+
+        monkeypatch.setattr(pipeline.whispermlx, "align", align_main)
+        monkeypatch.setattr("app.speech_coverage.missing_speech", lambda *args: [])
+        result = pipeline.align(
+            np.zeros(6 * 16000, dtype=np.float32), {"segments": [english, japanese], "language": "en"}, strict=True
+        )
+        assert result["segments"] == [english, japanese]
+        assert result["word_segments"][-1]["word"] == "ゴジラ"
+
+    def test_foreign_only_segments_keep_native_timings_without_loading_english(self, monkeypatch):
+        pipeline = _import_pipeline()
+        japanese = {
+            "start": 0.0,
+            "end": 2.0,
+            "text": "ゴジラ",
+            "language": "ja",
+            "words": [{"word": "ゴジラ", "start": 0.0, "end": 2.0}],
+        }
+
+        def unexpected(*args, **kwargs):
+            raise AssertionError("Wrong-language aligner must not run")
+
+        monkeypatch.setattr(pipeline, "load_align_model", unexpected)
+        monkeypatch.setattr("app.speech_coverage.missing_speech", lambda *args: [])
+        result = pipeline.align(
+            np.zeros(3 * 16000, dtype=np.float32), {"segments": [japanese], "language": "en"}, strict=True
+        )
+        assert result["segments"] == [japanese]
+
+    def test_strict_alignment_cannot_publish_dropped_speech(self, monkeypatch):
+        pipeline = _import_pipeline()
+        pipeline._align_models["en"] = (MagicMock(), {})
+        monkeypatch.setattr(pipeline.whispermlx, "align", lambda *args, **kwargs: {"segments": []})
+        monkeypatch.setattr("app.speech_coverage.missing_speech", lambda *args: [(0, 8)])
+        with pytest.raises(RuntimeError, match="Untranscribed speech remains"):
+            pipeline.align(np.ones(8 * 16000, dtype=np.float32), {"language": "en", "segments": []}, strict=True)
 
     def test_align_calls_whispermlx_align(self):
         """align() should call whispermlx.align()."""

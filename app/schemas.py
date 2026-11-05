@@ -67,6 +67,8 @@ class TranscriptionVerboseJsonResponse(BaseModel):
     text: str
     segments: list[TranscriptionSegment] = Field(default_factory=list)
     words: list[TranscriptionWord] | None = None
+    warnings: list[str] | None = None
+    untranscribed_regions: list[dict[str, float]] | None = None
 
 
 # --- Error Models (OpenAI-compatible) ---
